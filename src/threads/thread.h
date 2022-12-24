@@ -127,10 +127,7 @@ const char *thread_name (void);
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 void thread_sleep (int64_t);
-void thread_wake_up (void);
-
-struct thread *thread_find_minimum_tick_thread (struct list *);
-int64_t thread_get_minimum_tick (void);
+void thread_wake_up (int64_t);
 
 int thread_get_priority (void);
 void thread_set_priority (int);

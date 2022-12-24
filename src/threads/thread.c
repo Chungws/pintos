@@ -329,39 +329,27 @@ thread_sleep (int64_t time)
     list_push_back (&sleep_list, &curr->elem);
   curr->tick = time;
   thread_block();
-  schedule ();
+
   intr_set_level (old_level);
 }
 
 void
-thread_wake_up (void)
+thread_wake_up (int64_t ticks)
 {
-  struct thread *t = thread_find_minimum_tick_thread(&sleep_list);
-  list_remove(&t->elem);
-  thread_unblock(t);
-}
-
-static bool
-value_less (const struct list_elem *a_, const struct list_elem *b_,
-            void *aux UNUSED) 
-{
-  const struct thread *a = list_entry (a_, struct thread, elem);
-  const struct thread *b = list_entry (b_, struct thread, elem);
-  
-  return a->tick < b->tick;
-}
-
-struct thread *
-thread_find_minimum_tick_thread (struct list *list)
-{
-  struct list_elem *e = list_min(&list, value_less, NULL);
-  return list_entry (e, struct thread, elem);
-}
-
-int64_t
-thread_get_minimum_tick (void)
-{
-  return thread_find_minimum_tick_thread(&sleep_list)->tick;
+  struct list_elem *e = list_begin (&sleep_list);
+  while (e != list_end (&sleep_list))
+    {
+      struct thread *t = list_entry (e, struct thread, elem);
+      if (t->tick <= ticks) 
+        {
+          e = list_remove (e);
+          thread_unblock (t);
+        } 
+      else
+        {
+          e = list_next (e);
+        }
+    }
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
