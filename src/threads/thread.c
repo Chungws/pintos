@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -27,6 +28,8 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+static struct list sleep_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -70,6 +73,8 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static bool value_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,6 +96,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&sleep_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -308,6 +314,54 @@ thread_yield (void)
   curr->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+void
+thread_sleep (int64_t time)
+{
+  struct thread *curr = thread_current ();
+  enum intr_level old_level;
+  
+  ASSERT (!intr_context ());
+
+  old_level = intr_disable ();
+  if (curr != idle_thread) 
+    list_push_back (&sleep_list, &curr->elem);
+  curr->tick = time;
+  thread_block();
+  schedule ();
+  intr_set_level (old_level);
+}
+
+void
+thread_wake_up (void)
+{
+  struct thread *t = thread_find_minimum_tick_thread(&sleep_list);
+  list_remove(&t->elem);
+  thread_unblock(t);
+}
+
+static bool
+value_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->tick < b->tick;
+}
+
+struct thread *
+thread_find_minimum_tick_thread (struct list *list)
+{
+  struct list_elem *e = list_min(&list, value_less, NULL);
+  return list_entry (e, struct thread, elem);
+}
+
+int64_t
+thread_get_minimum_tick (void)
+{
+  return thread_find_minimum_tick_thread(&sleep_list)->tick;
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
