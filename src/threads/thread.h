@@ -137,4 +137,8 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void thread_check_then_yield (void);
+bool thread_cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
+                          void *aux UNUSED);
+
 #endif /* threads/thread.h */

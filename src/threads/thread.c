@@ -73,8 +73,6 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-static bool cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
-            void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -205,8 +203,7 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
-  if (t->priority > thread_current ()->priority)
-    thread_yield ();
+  thread_check_then_yield ();
 
   return tid;
 }
@@ -227,8 +224,8 @@ thread_block (void)
   schedule ();
 }
 
-static bool
-cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
+bool
+thread_cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
               void *aux UNUSED)
 {
   const struct thread *a = list_entry (a_, struct thread, elem);
@@ -254,7 +251,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered (&ready_list, &t->elem, cmp_priority, NULL);
+  list_insert_ordered (&ready_list, &t->elem, thread_cmp_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -323,7 +320,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (curr != idle_thread) 
-    list_insert_ordered (&ready_list, &curr->elem, cmp_priority, NULL);
+    list_insert_ordered (&ready_list, &curr->elem, thread_cmp_priority, NULL);
   curr->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -362,6 +359,17 @@ thread_wake_up (int64_t ticks)
         {
           e = list_next (e);
         }
+    }
+}
+
+void
+thread_check_then_yield (void)
+{
+  if (!list_empty (&ready_list) && 
+    thread_current ()->priority < 
+    list_entry (list_front (&ready_list), struct thread, elem)->priority)
+    {
+      thread_yield ();
     }
 }
 
