@@ -89,6 +89,12 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
 
+    int init_priority;
+
+    struct lock *waiting_lock;
+    struct list donations;
+    struct list_elem donation_elem;
+
     int64_t tick;                       /* Local tick */
 
     /* Shared between thread.c and synch.c. */
@@ -131,6 +137,8 @@ void thread_wake_up (int64_t);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_donate_priority (void);
+void thread_reset_priority (void);
 
 int thread_get_nice (void);
 void thread_set_nice (int);
@@ -140,5 +148,7 @@ int thread_get_load_avg (void);
 void thread_check_then_yield (void);
 bool thread_cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
                           void *aux UNUSED);
+bool thread_cmp_donated_priority (const struct list_elem *a_, const struct list_elem *b_,
+                                 void *aux UNUSED);
 
 #endif /* threads/thread.h */

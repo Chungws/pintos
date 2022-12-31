@@ -234,6 +234,16 @@ thread_cmp_priority (const struct list_elem *a_, const struct list_elem *b_,
   return a->priority > b->priority;
 }
 
+bool
+thread_cmp_donated_priority (const struct list_elem *a_, const struct list_elem *b_,
+              void *aux UNUSED)
+{
+  const struct thread *a = list_entry (a_, struct thread, donation_elem);
+  const struct thread *b = list_entry (b_, struct thread, donation_elem);
+
+  return a->priority > b->priority;
+}
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -373,11 +383,49 @@ thread_check_then_yield (void)
     }
 }
 
+void
+thread_donate_priority (void)
+{
+  struct thread *t = thread_current ();
+  ASSERT (t->waiting_lock != NULL);
+
+  int depth;
+  for (depth = 0; depth < 8; ++depth)
+    {
+      if (!t->waiting_lock) break;
+      struct thread *donated = t->waiting_lock->holder;
+      donated->priority = t->priority;
+      t = donated;
+    }
+
+  // while (t->waiting_lock)
+  //   {
+  //     struct thread *donated = t->waiting_lock->holder;
+  //     donated->priority = t->priority;
+  //     t = donated;
+  //   }
+}
+
+void
+thread_reset_priority (void)
+{
+  struct thread *current = thread_current ();
+  current->priority = current->init_priority;
+
+  if (!list_empty (&current->donations))
+    {
+      struct thread *front = list_entry (list_front (&current->donations), struct thread, donation_elem);
+      if (current->priority < front->priority) current->priority = front->priority;
+    }
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  thread_current ()->init_priority = new_priority;
+
+  thread_reset_priority ();
 
   struct list_elem *e = list_begin (&ready_list);
   struct thread *t = list_entry (e, struct thread, elem);
@@ -507,6 +555,9 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->init_priority = priority;
+  t->waiting_lock = NULL;
+  list_init (&t->donations);
   t->magic = THREAD_MAGIC;
 }
 
