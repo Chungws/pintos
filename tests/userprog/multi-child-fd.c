@@ -19,7 +19,11 @@ test_main (void)
 
   snprintf (child_cmd, sizeof child_cmd, "child-close %d", handle);
   
-  msg ("wait(exec()) = %d", wait (exec (child_cmd)));
+  pid_t pid;
+  if (!(pid = fork("child-close"))){
+    exec (child_cmd);
+  }
+  msg ("wait(exec()) = %d", wait (pid));
 
   check_file_handle (handle, "sample.txt", sample, sizeof sample - 1);
 }

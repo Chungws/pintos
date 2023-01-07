@@ -13,7 +13,7 @@ test_main (void)
   int handle;
   
   CHECK ((handle = open ("sample.txt")) > 1, "open \"sample.txt\"");
-  CHECK (mmap (handle, (void *) test_main_page) == MAP_FAILED,
+  CHECK (mmap ((void *) test_main_page, 4096, 0, handle, 0) == MAP_FAILED,
          "try to mmap over code segment");
 }
 

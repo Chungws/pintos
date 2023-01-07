@@ -16,15 +16,19 @@ test_main (void)
 
   /* Open file, map, verify data. */
   CHECK ((handle = open ("sample.txt")) > 1, "open \"sample.txt\"");
-  CHECK (mmap (handle, actual) != MAP_FAILED, "mmap \"sample.txt\"");
+  CHECK (mmap (actual, 4096, 0, handle, 0) != MAP_FAILED, "mmap \"sample.txt\"");
   if (memcmp (actual, sample, strlen (sample)))
     fail ("read of mmap'd file reported bad data");
 
-  /* Spawn child and wait. */
-  CHECK ((child = exec ("child-inherit")) != -1, "exec \"child-inherit\"");
-  quiet = true;
-  CHECK (wait (child) == -1, "wait for child (should return -1)");
-  quiet = false;
+	/* Spawn child and wait. */
+	child = fork("child-inherit");
+	if (child == 0) {
+		CHECK (exec ("child-inherit") != -1, "exec \"child-inherit\"");
+	}	else {
+		quiet = true;
+		CHECK (wait (child) == -1, "wait for child (should return -1)");
+		quiet = false;
+	}
 
   /* Verify data again. */
   CHECK (!memcmp (actual, sample, strlen (sample)),

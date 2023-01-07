@@ -1,6 +1,6 @@
-/* Recursively executes itself until the child fails to execute.
-   We expect that at least 30 copies can run.
-
+/* Recursively forks until the child fails to fork.
+   We expect that at least 28 copies can run.
+   
    We count how many children your kernel was able to execute
    before it fails to start a new process.  We require that,
    if a process doesn't actually get to start, exec() must
@@ -12,8 +12,15 @@
    In addition, some processes will spawn children that terminate
    abnormally after allocating some resources.
 
-   Written by Godmar Back <godmar@gmail.com>
- */
+   We set EXPECTED_DEPTH_TO_PASS heuristically by
+   giving *large* margin on the value from our implementation.
+   If you seriously think there is no memory leak in your code
+   but it fails with EXPECTED_DEPTH_TO_PASS,
+   please manipulate it and report us the actual output.
+   
+   Orignally written by Godmar Back <godmar@gmail.com>
+   Modified by Minkyu Jung, Jinyoung Oh <cs330_ta@casys.kaist.ac.kr>
+*/
 
 #include <debug.h>
 #include <stdio.h>
@@ -24,23 +31,12 @@
 #include <random.h>
 #include "tests/lib.h"
 
-static const int EXPECTED_DEPTH_TO_PASS = 30;
+static const int EXPECTED_DEPTH_TO_PASS = 10;
 static const int EXPECTED_REPETITIONS = 10;
 
 const char *test_name = "multi-oom";
 
-enum child_termination_mode { RECURSE, CRASH };
-
-/* Spawn a recursive copy of ourselves, passing along instructions
-   for the child. */
-static pid_t
-spawn_child (int c, enum child_termination_mode mode)
-{
-  char child_cmd[128];
-  snprintf (child_cmd, sizeof child_cmd,
-            "%s %d %s", test_name, c, mode == CRASH ? "-k" : "");
-  return exec (child_cmd);
-}
+int make_children (void);
 
 /* Open a number of files (and fail to close them).
    The kernel must free any kernel resources associated
@@ -51,129 +47,113 @@ consume_some_resources (void)
   int fd, fdmax = 126;
 
   /* Open as many files as we can, up to fdmax.
-     Depending on how file descriptors are allocated inside
-     the kernel, open() may fail if the kernel is low on memory.
-     A low-memory condition in open() should not lead to the
-     termination of the process.  */
-  for (fd = 0; fd < fdmax; fd++)
-    if (open (test_name) == -1)
-      break;
+	 Depending on how file descriptors are allocated inside
+	 the kernel, open() may fail if the kernel is low on memory.
+	 A low-memory condition in open() should not lead to the
+	 termination of the process.  */
+  for (fd = 0; fd < fdmax; fd++) {
+#ifdef EXTRA2
+	  if (fd != 0 && (random_ulong () & 1)) {
+		if (dup2(random_ulong () % fd, fd+fdmax) == -1)
+			break;
+		else
+			if (open (test_name) == -1)
+			  break;
+	  }
+#else
+		if (open (test_name) == -1)
+		  break;
+#endif
+  }
 }
 
 /* Consume some resources, then terminate this process
    in some abnormal way.  */
 static int NO_INLINE
-consume_some_resources_and_die (int seed)
+consume_some_resources_and_die (void)
 {
   consume_some_resources ();
-  random_init (seed);
-  int *PHYS_BASE = (int *)0xC0000000;
+  int *KERN_BASE = (int *)0x8004000000;
 
-  switch (random_ulong () % 5)
-    {
-      case 0:
-        *(int *) NULL = 42;
+  switch (random_ulong () % 5) {
+	case 0:
+	  *(int *) NULL = 42;
+    break;
 
-      case 1:
-        return *(int *) NULL;
+	case 1:
+	  return *(int *) NULL;
 
-      case 2:
-        return *PHYS_BASE;
+	case 2:
+	  return *KERN_BASE;
 
-      case 3:
-        *PHYS_BASE = 42;
+	case 3:
+	  *KERN_BASE = 42;
+    break;
 
-      case 4:
-        open ((char *)PHYS_BASE);
-        exit (-1);
+	case 4:
+	  open ((char *)KERN_BASE);
+	  exit (-1);
+    break;
 
-      default:
-        NOT_REACHED ();
-    }
+	default:
+	  NOT_REACHED ();
+  }
   return 0;
 }
 
-/* The first copy is invoked without command line arguments.
-   Subsequent copies are invoked with a parameter 'depth'
-   that describes how many parent processes preceded them.
-   Each process spawns one or multiple recursive copies of
-   itself, passing 'depth+1' as depth.
-
-   Some children are started with the '-k' flag, which will
-   result in abnormal termination.
- */
 int
-main (int argc, char *argv[])
-{
-  int n;
-
-  n = argc > 1 ? atoi (argv[1]) : 0;
-  bool is_at_root = (n == 0);
-  if (is_at_root)
-    msg ("begin");
-
-  /* If -k is passed, crash this process. */
-  if (argc > 2 && !strcmp(argv[2], "-k"))
-    {
-      consume_some_resources_and_die (n);
-      NOT_REACHED ();
+make_children (void) {
+  int i = 0;
+  int pid;
+  char child_name[128];
+  for (; ; random_init (i), i++) {
+    if (i > EXPECTED_DEPTH_TO_PASS/2) {
+      snprintf (child_name, sizeof child_name, "%s_%d_%s", "child", i, "X");
+      pid = fork(child_name);
+      if (pid > 0 && wait (pid) != -1) {
+        fail ("crashed child should return -1.");
+      } else if (pid == 0) {
+        consume_some_resources_and_die();
+        fail ("Unreachable");
+      }
     }
 
-  int howmany = is_at_root ? EXPECTED_REPETITIONS : 1;
-  int i, expected_depth = -1;
-
-  for (i = 0; i < howmany; i++)
-    {
-      pid_t child_pid;
-
-      /* Spawn a child that will be abnormally terminated.
-         To speed the test up, do this only for processes
-         spawned at a certain depth. */
-      if (n > EXPECTED_DEPTH_TO_PASS/2)
-        {
-          child_pid = spawn_child (n + 1, CRASH);
-          if (child_pid != -1)
-            {
-              if (wait (child_pid) != -1)
-                fail ("crashed child should return -1.");
-            }
-          /* If spawning this child failed, so should
-             the next spawn_child below. */
-        }
-
-      /* Now spawn the child that will recurse. */
-      child_pid = spawn_child (n + 1, RECURSE);
-
-      /* If maximum depth is reached, return result. */
-      if (child_pid == -1)
-        return n;
-
-      /* Else wait for child to report how deeply it was able to recurse. */
-      int reached_depth = wait (child_pid);
-      if (reached_depth == -1)
-        fail ("wait returned -1.");
-
-      /* Record the depth reached during the first run; on subsequent
-         runs, fail if those runs do not match the depth achieved on the
-         first run. */
-      if (i == 0)
-        expected_depth = reached_depth;
-      else if (expected_depth != reached_depth)
-        fail ("after run %d/%d, expected depth %d, actual depth %d.",
-              i, howmany, expected_depth, reached_depth);
-      ASSERT (expected_depth == reached_depth);
+    snprintf (child_name, sizeof child_name, "%s_%d_%s", "child", i, "O");
+    pid = fork(child_name);
+    if (pid < 0) {
+      exit (i);
+    } else if (pid == 0) {
+      consume_some_resources();
+    } else {
+      break;
     }
+  }
 
-  consume_some_resources ();
+  int depth = wait (pid);
+  if (depth < 0)
+	  fail ("Should return > 0.");
 
-  if (n == 0)
-    {
-      if (expected_depth < EXPECTED_DEPTH_TO_PASS)
-        fail ("should have forked at least %d times.", EXPECTED_DEPTH_TO_PASS);
-      msg ("success. program forked %d times.", howmany);
-      msg ("end");
-    }
-
-  return expected_depth;
+  if (i == 0)
+	  return depth;
+  else
+	  exit (depth);
 }
-// vim: sw=2
+
+int
+main (int argc UNUSED, char *argv[] UNUSED) {
+  msg ("begin");
+
+  int first_run_depth = make_children ();
+  CHECK (first_run_depth >= EXPECTED_DEPTH_TO_PASS, "Spawned at least %d children.", EXPECTED_DEPTH_TO_PASS);
+
+  for (int i = 0; i < EXPECTED_REPETITIONS; i++) {
+    int current_run_depth = make_children();
+    if (current_run_depth < first_run_depth) {
+      fail ("should have forked at least %d times, but %d times forked", 
+              first_run_depth, current_run_depth);
+    }
+  }
+
+  msg ("success. Program forked %d iterations.", EXPECTED_REPETITIONS);
+  msg ("end");
+}

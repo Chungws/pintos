@@ -18,7 +18,7 @@ test_main (void)
     {
       CHECK ((handle[i] = open ("sample.txt")) > 1,
              "open \"sample.txt\" #%zu", i);
-      CHECK (mmap (handle[i], actual[i]) != MAP_FAILED,
+      CHECK (mmap (actual[i], 4096, 0, handle[i], 0) != MAP_FAILED,
              "mmap \"sample.txt\" #%zu at %p", i, (void *) actual[i]);
     }
 

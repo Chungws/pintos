@@ -12,12 +12,12 @@ test_main (void)
 {
   char *actual = (char *) 0x10000000;
   int handle;
-  mapid_t map;
+  void *map;
   size_t i;
 
   /* Map file. */
   CHECK ((handle = open ("sample.txt")) > 1, "open \"sample.txt\"");
-  CHECK ((map = mmap (handle, actual)) != MAP_FAILED, "mmap \"sample.txt\"");
+  CHECK ((map = mmap (actual, 4096, 0, handle, 0)) != MAP_FAILED, "mmap \"sample.txt\"");
 
   /* Close file and delete it. */
   close (handle);

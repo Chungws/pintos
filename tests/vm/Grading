@@ -2,11 +2,16 @@
 # tests.
 
 # This project is primarily about virtual memory, but all the previous
-# functionality should work too, and it's easy to screw it up, thus
-# the equal weight placed on each.
+# functionality should work too
 
-50%	tests/vm/Rubric.functionality
-15%	tests/vm/Rubric.robustness
-10%	tests/userprog/Rubric.functionality
+1%	tests/threads/Rubric.alarm
+1%	tests/threads/Rubric.priority
+8%	tests/userprog/Rubric.functionality
 5%	tests/userprog/Rubric.robustness
-20%	tests/filesys/base/Rubric
+
+60%	tests/vm/Rubric.functionality
+20%	tests/vm/Rubric.robustness
+5%	tests/filesys/base/Rubric
+
+# Extra project
+25%	tests/vm/cow/Rubric

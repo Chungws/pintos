@@ -4,9 +4,8 @@ use warnings;
 use tests::tests;
 check_expected ([<<'EOF']);
 (exec-once) begin
+(exec-once) I'm your father
 (child-simple) run
-child-simple: exit(81)
-(exec-once) end
-exec-once: exit(0)
+exec-once: exit(81)
 EOF
 pass;

@@ -1,6 +1,8 @@
 # -*- makefile -*-
+include ../Make.vars
 
-$(PROGS): CPPFLAGS += -I$(SRCDIR)/lib/user -I.
+$(PROGS): CPPFLAGS += -I$(SRCDIR)/include/lib/user -I.
+$(PROGS): CFLAGS += $(TDEFINE) -fno-stack-protector -Wno-builtin-declaration-mismatch
 
 # Linker flags.
 $(PROGS): LDFLAGS = -nostdlib -static -Wl,-T,$(LDSCRIPT)
@@ -32,7 +34,7 @@ all: $(PROGS)
 define TEMPLATE
 $(1)_OBJ = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$($(1)_SRC)))
 $(1): $$($(1)_OBJ) $$(LIB) $$(LDSCRIPT)
-	$$(CC) $$(LDFLAGS) $$($(1)_OBJ) $$(LIB) -o $$@
+	$$(CC) $$(CFLAGS) $$(LDFLAGS) $$($(1)_OBJ) $$(LIB) -o $$@
 endef
 
 $(foreach prog,$(PROGS),$(eval $(call TEMPLATE,$(prog))))

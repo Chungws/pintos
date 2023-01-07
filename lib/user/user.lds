@@ -1,22 +1,27 @@
-OUTPUT_FORMAT("elf32-i386")
-OUTPUT_ARCH(i386)
+OUTPUT_FORMAT("elf64-x86-64")
+OUTPUT_ARCH(i386:x86-64)
 ENTRY(_start)
 
 SECTIONS
 {
   /* Read-only sections, merged into text segment: */
-  __executable_start = 0x08048000 + SIZEOF_HEADERS;
-  . = 0x08048000 + SIZEOF_HEADERS;
-  .text : { *(.text) } = 0x90
+  __executable_start = 0x0400000 + SIZEOF_HEADERS;
+  . = 0x0400000 + SIZEOF_HEADERS;
+  .text : AT(0x400000 + SIZEOF_HEADERS) {
+    *(.text)
+    *(.note.gnu.build-id)
+  } = 0x90
+
   .rodata : { *(.rodata) }
 
   /* Adjust the address for the data segment.  We want to adjust up to
      the same address within the page on the next page up.  */
-  . = ALIGN (0x1000) - ((0x1000 - .) & (0x1000 - 1)); 
-  . = DATA_SEGMENT_ALIGN (0x1000, 0x1000);
+  . = DATA_SEGMENT_ALIGN (CONSTANT (MAXPAGESIZE), CONSTANT (COMMONPAGESIZE));
 
   .data : { *(.data) }
   .bss : { *(.bss) }
+
+  . = DATA_SEGMENT_RELRO_END (0, .);
 
   /* Stabs debugging sections.  */
   .stab          0 : { *(.stab) }

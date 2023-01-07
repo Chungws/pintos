@@ -110,68 +110,38 @@ start:
 	movb $0xdf, %al
 	outb %al, $0x60
 
-#### Get memory size, via interrupt 15h function 88h.  Returns CF
-#### clear if successful, with AX = (kB of physical memory) - 1024.
-#### This only works for memory sizes <= 65 MB, which should be fine
-#### for our purposes.  We cap memory at 64 MB because that's all we
-#### prepare page tables for, below.
-	
-	movb $0x88, %ah
+
+#### Get memory size, via interrupt 15h function e820h. Now our pintos
+#### runs on x86_64, "Get Extended Memory Size" operation is not sufficient
+#### for our purpose.
+	mov $0xe820, %eax  # command
+	mov $(E820_MAP4), %edi  # dst
+	xor %ebx, %ebx
+	mov $0x534d4150, %edx # magic
+	mov $24, %ecx
 	int $0x15
-	jc panic
-	cli			# BIOS might have enabled interrupts
-	addl $1024, %eax	# Total kB memory
-	cmp $0x10000, %eax	# Cap at 64 MB
-	jbe 1f
-	mov $0x10000, %eax
-1:	shrl $2, %eax		# Total 4 kB pages
-	movl %eax, ram_pgs
-	
-#### Create temporary page directory and page table and set page
-#### directory base register.
+	cmp %eax, %edx
+	test %ebx, %ebx
+	je panic
+	mov $24, %ebp
 
-# Create page directory at 64 kB and fill with zeroes.
-	mov $0x1000, %ax
-	mov %ax, %es
-	subl %eax, %eax
-	subl %edi, %edi
-	movl $0x400, %ecx
-	rep stosl
+parse_e820:
+	mov %ecx, -4(%edi)
+	add $24, %edi
+	mov $0xe820, %eax
+	mov $24, %ecx
+	int $0x15
+	jc e820_parse_done
+	add $24, %ebp
+	test %ebx, %ebx
+	jne parse_e820
 
-# Add PDEs to point to PTEs for the first 64 MB of RAM.
-# Also add identical PDEs starting at LOADER_PHYS_BASE.
-# See [IA32-v3a] section 3.7.6 "Page-Directory and Page-Table Entries"
-# for a description of the bits in %eax.
-	
+e820_parse_done:
+	mov %ecx, -4(%edi)
+	movl $0x40, MULTIBOOT_FLAG
+	movl %ebp, MULTIBOOT_MMAP_LEN
+	movl $(E820_MAP), MULTIBOOT_MMAP_ADDR # e820
 
-	movl $0x11007, %eax
-	movl $0x11, %ecx
-	subl %edi, %edi
-1:	movl %eax, %es:(%di)
-	movl %eax, %es:LOADER_PHYS_BASE >> 20(%di)
-	addw $4, %di
-	addl $0x1000, %eax
-	loop 1b
-
-# Set up one-to-map linear to physical map for the first 64 MB of RAM.
-# See [IA32-v3a] section 3.7.6 "Page-Directory and Page-Table Entries"
-# for a description of the bits in %eax.
-
-	movw $0x1100, %ax
-	movw %ax, %es
-	movl $0x7, %eax
-	movl $0x4000, %ecx
-	subl %edi, %edi
-1:	movl %eax, %es:(%di)
-	addw $4, %di
-	addl $0x1000, %eax
-	loop 1b
-
-# Set page directory base register.
-
-	movl $0x10000, %eax
-	movl %eax, %cr3
-	
 #### Switch to protected mode.
 
 # Note that interrupts are still off.
@@ -191,7 +161,7 @@ start:
 #       We don't support floating point. 
 	
 	movl %cr0, %eax
-	orl $CR0_PE | CR0_PG | CR0_WP | CR0_EM, %eax
+	orl $CR0_PE, %eax
 	movl %eax, %cr0
 	
 # We're now in protected mode in a 16-bit segment.  The CPU still has
@@ -200,8 +170,8 @@ start:
 # Because we're not in a 32-bit segment the data32 prefix is needed to
 # jump to a 32-bit offset.
 
-	data32 ljmp $SEL_KCSEG, $1f + LOADER_PHYS_BASE
-	
+	data32 ljmp $SEL_KCSEG, $protcseg
+
 # We're now in protected mode in a 32-bit segment.
 
 	.code32
@@ -209,7 +179,8 @@ start:
 # Reload all the other segment registers and the stack pointer to
 # point into our new GDT.
 
-1:	movw $SEL_KDSEG, %ax
+protcseg:
+	movw $SEL_KDSEG, %ax
 	movw %ax, %ds		
 	movw %ax, %es		
 	movw %ax, %fs		
@@ -217,11 +188,11 @@ start:
 	movw %ax, %ss
 	movl $LOADER_PHYS_BASE + 0x30000, %esp
 
-#### Load kernel starting at physical address LOADER_KERN_BASE by
+#### Load kernel starting at physical address LOADER_PHYS_BASE by
 #### frobbing the IDE controller directly.
 
 	movl $1, %ebx
-	movl $LOADER_KERN_BASE + LOADER_PHYS_BASE, %edi
+	movl $LOADER_PHYS_BASE, %edi
 
 # Disable interrupt delivery by IDE controller, because we will be
 # polling for data.
@@ -294,8 +265,7 @@ read_sector:
 	jnz read_sector
 
 #### Jump to kernel entry point.
-
-	movl $LOADER_PHYS_BASE + LOADER_KERN_BASE, %eax
+	movl $LOADER_PHYS_BASE, %eax
 	call *%eax
 	jmp panic
 
@@ -304,11 +274,11 @@ read_sector:
 gdt:
 	.quad 0x0000000000000000	# null seg
 	.quad 0x00cf9a000000ffff	# code seg
-	.quad 0x00cf92000000ffff        # data seg
+	.quad 0x00cf92000000ffff  # data seg
 	
 gdtdesc:
 	.word	0x17			# sizeof (gdt) - 1
-	.long	gdt + LOADER_PHYS_BASE	# address gdt
+	.long	gdt
 
 #### Fatal error.
 #### Print panic_message (with help from the BIOS) and spin.
@@ -326,12 +296,6 @@ panic:  .code16			# We only panic in real mode.
 panic_message:
 	.ascii "Panic!"
 	.byte 0
-
-#### Physical memory size in 4 kB pages.
-#### This is initialized by the loader and read by the kernel.
-	.org LOADER_RAM_PGS - LOADER_BASE
-ram_pgs:
-	.long 0
 
 #### Command-line arguments and their count.
 #### This is written by the `pintos' utility and read by the kernel.

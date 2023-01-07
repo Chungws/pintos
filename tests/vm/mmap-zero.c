@@ -8,7 +8,7 @@
 #include "tests/main.h"
 
 void
-test_main (void) 
+test_main (void)
 {
   char *data = (char *) 0x7f000000;
   int handle;
@@ -18,7 +18,7 @@ test_main (void)
 
   /* Calling mmap() might succeed or fail.  We don't care. */
   msg ("mmap \"empty\"");
-  mmap (handle, data);
+  mmap (data, 0, 0, handle, 0);
 
   /* Regardless of whether the call worked, *data should cause
      the process to be terminated. */

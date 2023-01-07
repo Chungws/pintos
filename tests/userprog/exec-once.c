@@ -7,5 +7,6 @@
 void
 test_main (void) 
 {
-  wait (exec ("child-simple"));
+  msg ("I'm your father");
+  exec ("child-simple");
 }
