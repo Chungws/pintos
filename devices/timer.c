@@ -138,6 +138,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  thread_increase_recent_cpu ();
+  if (timer_ticks () % TIMER_FREQ == 0)
+    {
+      thread_recompute_all ();
+    }
+  else if (timer_ticks () % 4 == 0)
+    {
+      thread_recompute_priority_all ();
+    }
   thread_wake_up(ticks);
 }
 

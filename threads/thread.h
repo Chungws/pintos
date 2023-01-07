@@ -24,6 +24,11 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/* Thread nices. */
+#define NICE_MIN -20
+#define NICE_DEFAULT 0
+#define NICE_MAX 20
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -97,6 +102,9 @@ struct thread
 
     int64_t tick;                       /* Local tick */
 
+    int nice;
+    int recent_cpu;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -144,6 +152,13 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_recompute_all (void);
+void thread_recompute_recent_cpu (struct thread *);
+void thread_recompute_priority_all (void);
+void thread_recompute_priority (struct thread *);
+void thread_update_load_avg (void);
+void thread_increase_recent_cpu (void);
 
 void thread_check_then_yield (void);
 bool thread_cmp_priority (const struct list_elem *a_, const struct list_elem *b_,

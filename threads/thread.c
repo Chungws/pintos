@@ -62,6 +62,8 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+int load_avg;
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -95,6 +97,8 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&sleep_list);
+
+  load_avg = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -423,14 +427,72 @@ thread_reset_priority (void)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->init_priority = new_priority;
+  return;
+  thread_current ()->priority = new_priority;
 
   thread_reset_priority ();
 
-  struct list_elem *e = list_begin (&ready_list);
-  struct thread *t = list_entry (e, struct thread, elem);
-  if (new_priority < t->priority)
-    thread_yield ();
+  thread_check_then_yield ();
+}
+
+void
+thread_recompute_all (void)
+{
+  thread_update_load_avg ();
+  struct list_elem *e;
+  for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
+    {
+      thread_recompute_recent_cpu (list_entry (e, struct thread, elem));
+    }
+  for (e = list_begin (&sleep_list); e != list_end (&sleep_list); e = list_next (e))
+    {
+      thread_recompute_recent_cpu (list_entry (e, struct thread, elem));
+    }
+  thread_recompute_recent_cpu (thread_current ());
+  thread_recompute_priority_all ();
+}
+
+void
+thread_recompute_recent_cpu (struct thread *t)
+{
+  int f = 1 << 14;
+
+  int f_load_avg = load_avg * f;
+  int f_decay = ((int64_t ) (2 * f_load_avg)) * f / (2 * f_load_avg + 1);
+
+  int new_f_recent_cpu = f_decay * t->recent_cpu + t->nice * f;
+  t->recent_cpu = (new_f_recent_cpu + f / 2) / f;
+}
+
+void
+thread_recompute_priority_all (void)
+{
+  struct list_elem *e;
+  for (e = list_begin (&ready_list); e != list_end (&ready_list); e = list_next (e))
+    {
+      thread_recompute_priority(list_entry (e, struct thread, elem));
+    }
+  for (e = list_begin (&sleep_list); e != list_end (&sleep_list); e = list_next (e))
+    {
+      thread_recompute_priority(list_entry (e, struct thread, elem));
+    }
+  thread_recompute_priority (thread_current ());
+
+  // thread_check_then_yield ();
+}
+
+void
+thread_recompute_priority (struct thread *t)
+{
+  if (t == idle_thread) return;
+
+  int f = 1 << 14;
+  int f_PRI_MAX = PRI_MAX * f;
+  int f_recent_cpu = t->recent_cpu * f;
+  int f_nice = t->nice * f;
+
+  int f_priority = f_PRI_MAX - (f_recent_cpu / 4) - (f_nice * 2);
+  t->priority = (f_priority + f / 2) / f;
 }
 
 /* Returns the current thread's priority. */
@@ -442,33 +504,53 @@ thread_get_priority (void)
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = nice;
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return load_avg * 100;
+}
+
+void
+thread_update_load_avg (void)
+{
+  int f = 1 << 14;
+  int f_load_avg = load_avg * f;
+  f_load_avg = f_load_avg * 59;
+  f_load_avg = f_load_avg / 60;
+
+  int f_ready_size = list_size (&ready_list) * f;
+  f_ready_size = f_ready_size / 60;
+
+  int new_f_load_avg = f_load_avg + f_ready_size;
+
+  load_avg = (new_f_load_avg + f / 2) / f;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->recent_cpu * 100;
+}
+
+void
+thread_increase_recent_cpu (void)
+{
+  struct thread *current = thread_current ();
+  current->recent_cpu++;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -554,10 +636,14 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  
   t->priority = priority;
   t->init_priority = priority;
   t->waiting_lock = NULL;
   list_init (&t->donations);
+
+  t->nice = NICE_DEFAULT;
+  t->recent_cpu = 0;
   t->magic = THREAD_MAGIC;
 }
 
