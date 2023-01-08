@@ -201,6 +201,8 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
   /* Add to run queue. */
   thread_unblock(t);
 
+  thread_check_then_yield();
+
   return tid;
 }
 
@@ -302,11 +304,11 @@ void thread_sleep(int64_t ticks) {
   ASSERT(!intr_context());
 
   old_level = intr_disable();
-  curr->wakeup_tick = ticks;
   if (curr != idle_thread) {
+    curr->wakeup_tick = ticks;
     list_push_back(&sleep_list, &curr->elem);
+    thread_update_minimum_wakeup_ticks(ticks);
   }
-  thread_update_minimum_wakeup_ticks(ticks);
   do_schedule(THREAD_BLOCKED);
   intr_set_level(old_level);
 }
@@ -352,6 +354,8 @@ bool thread_compare_priority(const struct list_elem *a_,
 /* Check the priorities of current thread and first thread in ready_list. If the
    first thread's priority is bigger than current thread, yield. */
 void thread_check_then_yield(void) {
+  if (list_empty(&ready_list)) return;
+
   struct thread *curr = thread_current();
   struct thread *first =
       list_entry(list_begin(&ready_list), struct thread, elem);
