@@ -29,6 +29,8 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+static struct list sleep_list;
+static int64_t minimum_wakeup_ticks;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -105,7 +107,9 @@ void thread_init(void) {
   /* Init the globla thread context */
   lock_init(&tid_lock);
   list_init(&ready_list);
+  list_init(&sleep_list);
   list_init(&destruction_req);
+  minimum_wakeup_ticks = INT64_MAX;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread();
@@ -284,6 +288,53 @@ void thread_yield(void) {
   if (curr != idle_thread) list_push_back(&ready_list, &curr->elem);
   do_schedule(THREAD_READY);
   intr_set_level(old_level);
+}
+
+/* Sleep the current thread. The current thread is put to sleep_list and
+   will be scheduled again when wakeup_tick is smaller than global ticks. */
+void thread_sleep(int64_t ticks) {
+  struct thread *curr = thread_current();
+  enum intr_level old_level;
+
+  ASSERT(!intr_context());
+
+  old_level = intr_disable();
+  curr->wakeup_tick = ticks;
+  if (curr != idle_thread) {
+    list_push_back(&sleep_list, &curr->elem);
+  }
+  thread_update_minimum_wakeup_ticks(ticks);
+  do_schedule(THREAD_BLOCKED);
+  intr_set_level(old_level);
+}
+
+/* Awakes sleeping threads. Check threads in sleep_list then move to ready_list
+   when wakeup_tick is smaller than global ticks. */
+void thread_wakeup(int64_t ticks) {
+  struct list_elem *e = list_begin(&sleep_list);
+  minimum_wakeup_ticks = INT64_MAX;
+  struct thread *t;
+
+  while (e != list_end(&sleep_list)) {
+    t = list_entry(e, struct thread, elem);
+    if (t->wakeup_tick <= ticks) {
+      e = list_remove(e);
+      thread_unblock(t);
+      continue;
+    }
+    thread_update_minimum_wakeup_ticks(t->wakeup_tick);
+    e = list_next(e);
+  }
+}
+
+/* Returns the minimum_wakeup_ticks. */
+int64_t thread_get_minimum_wakeup_ticks(void) { return minimum_wakeup_ticks; }
+
+/* Updates the minimum_wakeup_ticks. Compare the parameter ticks between
+ * minimum_wakeup_ticks and assign smaller one */
+void thread_update_minimum_wakeup_ticks(int64_t ticks) {
+  minimum_wakeup_ticks =
+      minimum_wakeup_ticks > ticks ? ticks : minimum_wakeup_ticks;
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
