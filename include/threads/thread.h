@@ -141,6 +141,10 @@ void thread_wakeup(int64_t ticks);
 int64_t thread_get_minimum_wakeup_ticks(void);
 void thread_update_minimum_wakeup_ticks(int64_t ticks);
 
+bool thread_compare_priority(const struct list_elem *a_,
+                             const struct list_elem *b_, void *aux UNUSED);
+void thread_check_then_yield(void);
+
 int thread_get_priority(void);
 void thread_set_priority(int);
 
