@@ -364,9 +364,50 @@ void thread_check_then_yield(void) {
   }
 }
 
+/* Donate priority to nested lock holders. */
+void thread_donate_priority(void) {
+  struct thread *t = thread_current();
+  int cur_priority = t->priority;
+  int cnt = 0;
+
+  // cur_priority is always higher than lock holder threads
+  while (cnt < 8) {
+    cnt++;
+    if (t->wait_on_lock == NULL) break;
+    t = t->wait_on_lock->holder;
+    t->priority = cur_priority;
+  }
+}
+
+/* Sort current thread's donated_list and reset current thread priority. */
+void thread_refresh_donation(void) {
+  struct thread *curr = thread_current();
+
+  curr->priority = curr->init_priority;
+  if (!list_empty(&curr->donated_list)) {
+    list_sort(&curr->donated_list, thread_compare_priority_donated, NULL);
+    struct list_elem *first = list_begin(&curr->donated_list);
+    struct thread *t_first = list_entry(first, struct thread, donated_elem);
+    if (t_first->priority > curr->priority) {
+      curr->priority = t_first->priority;
+    }
+  }
+}
+
+/* Compare priorities of two threads by donated_elem. */
+bool thread_compare_priority_donated(struct list_elem *a_, struct list_elem *b_,
+                                     void *aux UNUSED) {
+  struct thread *a = list_entry(a_, struct thread, donated_elem);
+  struct thread *b = list_entry(b_, struct thread, donated_elem);
+
+  return a->priority > b->priority;
+}
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-  thread_current()->priority = new_priority;
+  thread_current()->init_priority = new_priority;
+
+  thread_refresh_donation();
   thread_check_then_yield();
 }
 
@@ -452,6 +493,9 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   t->status = THREAD_BLOCKED;
   strlcpy(t->name, name, sizeof t->name);
   t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
+  t->init_priority = priority;
+  list_init(&t->donated_list);
+  t->wait_on_lock = NULL;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 }

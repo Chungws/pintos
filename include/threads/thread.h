@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -97,6 +98,12 @@ struct thread {
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
+  /* For Priority Donation */
+  int init_priority;             /* Original Priority */
+  struct list donated_list;      /* Priority donated list. */
+  struct list_elem donated_elem; /* Priority donated list element. */
+  struct lock *wait_on_lock;     /* Lock that it waits for */
+
 #ifdef USERPROG
   /* Owned by userprog/process.c. */
   uint64_t *pml4; /* Page map level 4 */
@@ -144,6 +151,11 @@ void thread_update_minimum_wakeup_ticks(int64_t ticks);
 bool thread_compare_priority(const struct list_elem *a_,
                              const struct list_elem *b_, void *aux UNUSED);
 void thread_check_then_yield(void);
+
+void thread_refresh_donation(void);
+void thread_donate_priority(void);
+bool thread_compare_priority_donated(struct list_elem *a_, struct list_elem *b_,
+                                     void *aux UNUSED);
 
 int thread_get_priority(void);
 void thread_set_priority(int);
