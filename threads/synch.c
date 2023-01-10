@@ -183,11 +183,13 @@ void lock_acquire(struct lock *lock) {
   ASSERT(!lock_held_by_current_thread(lock));
 
   struct thread *curr = thread_current();
-  if (lock->holder != NULL) {
-    curr->wait_on_lock = lock;
-    list_insert_ordered(&lock->holder->donated_list, &curr->donated_elem,
-                        thread_compare_priority_donated, NULL);
-    thread_donate_priority();
+  if (!thread_mlfqs) {
+    if (lock->holder != NULL) {
+      curr->wait_on_lock = lock;
+      list_insert_ordered(&lock->holder->donated_list, &curr->donated_elem,
+                          thread_compare_priority_donated, NULL);
+      thread_donate_priority();
+    }
   }
   sema_down(&lock->semaphore);
   curr->wait_on_lock = NULL;
@@ -223,17 +225,19 @@ void lock_release(struct lock *lock) {
 
   struct thread *curr = thread_current();
 
-  struct list_elem *e = list_begin(&curr->donated_list);
-  while (e != list_end(&curr->donated_list)) {
-    struct thread *t = list_entry(e, struct thread, donated_elem);
-    if (t->wait_on_lock == lock) {
-      e = list_remove(e);
-      continue;
+  if (!thread_mlfqs) {
+    struct list_elem *e = list_begin(&curr->donated_list);
+    while (e != list_end(&curr->donated_list)) {
+      struct thread *t = list_entry(e, struct thread, donated_elem);
+      if (t->wait_on_lock == lock) {
+        e = list_remove(e);
+        continue;
+      }
+      e = list_next(e);
     }
-    e = list_next(e);
-  }
 
-  thread_refresh_donation();
+    thread_refresh_donation();
+  }
 
   lock->holder = NULL;
   sema_up(&lock->semaphore);

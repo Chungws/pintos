@@ -109,6 +109,17 @@ static void timer_interrupt(struct intr_frame *args UNUSED) {
   ticks++;
   thread_tick();
 
+  if (thread_mlfqs) {
+    thread_increase_recent_cpu();
+
+    if (ticks % TIMER_FREQ == 0) {
+      thread_recalculate_all_recent_cpu();
+      thread_recalculate_all_priority();
+    } else if (ticks % 4 == 0) {
+      thread_recalculate_all_priority();
+    }
+  }
+
   if (ticks >= thread_get_minimum_wakeup_ticks()) {
     thread_wakeup(ticks);
   }

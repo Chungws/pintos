@@ -53,6 +53,8 @@ static long long user_ticks;   /* # of timer ticks in user programs. */
 #define TIME_SLICE 4          /* # of timer ticks to give each thread. */
 static unsigned thread_ticks; /* # of timer ticks since last yield. */
 
+int64_t load_avg;
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -405,6 +407,8 @@ bool thread_compare_priority_donated(struct list_elem *a_, struct list_elem *b_,
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
+  if (thread_mlfqs) return;
+
   thread_current()->init_priority = new_priority;
 
   thread_refresh_donation();
@@ -414,27 +418,106 @@ void thread_set_priority(int new_priority) {
 /* Returns the current thread's priority. */
 int thread_get_priority(void) { return thread_current()->priority; }
 
+void thread_recalculate_priority(struct thread *t) {
+  if (t == idle_thread) return;
+
+  const int64_t f = 1 << 14;
+  int64_t recent_cpu = t->recent_cpu;
+  recent_cpu = (recent_cpu / 4) / f;
+  int updated_priority = PRI_MAX - (t->nice * 2) - recent_cpu;
+
+  t->priority = updated_priority;
+}
+
+void thread_recalculate_all_priority(void) {
+  thread_recalculate_priority(thread_current());
+  for (struct list_elem *e = list_begin(&ready_list);
+       e != list_end(&ready_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, elem);
+    thread_recalculate_priority(t);
+  }
+  for (struct list_elem *e = list_begin(&sleep_list);
+       e != list_end(&sleep_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, elem);
+    thread_recalculate_priority(t);
+  }
+}
+
 /* Sets the current thread's nice value to NICE. */
-void thread_set_nice(int nice UNUSED) {
-  /* TODO: Your implementation goes here */
+void thread_set_nice(int nice) {
+  enum intr_level old_level = intr_disable();
+  struct thread *curr = thread_current();
+  curr->nice = nice;
+  thread_recalculate_priority(curr);
+  thread_check_then_yield();
+  intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
 int thread_get_nice(void) {
-  /* TODO: Your implementation goes here */
-  return 0;
+  enum intr_level old_level = intr_disable();
+  int nice = thread_current()->nice;
+  intr_set_level(old_level);
+  return nice;
 }
 
 /* Returns 100 times the system load average. */
 int thread_get_load_avg(void) {
-  /* TODO: Your implementation goes here */
-  return 0;
+  enum intr_level old_level = intr_disable();
+  const int64_t f = 1 << 14;
+  int load_avg_val = load_avg * 100 / f;
+  intr_set_level(old_level);
+  return load_avg_val;
+}
+
+void thread_recalculate_recent_cpu(struct thread *t) {
+  if (t == idle_thread) return;
+  const int64_t f = 1 << 14;
+  const int64_t numerator = 2 * load_avg;
+  const int64_t denominator = 2 * load_avg + 1 * f;
+  const int64_t decay = numerator * f / denominator;
+  const int64_t new_recent_cpu = (decay * t->recent_cpu / f) + (t->nice * f);
+  t->recent_cpu = new_recent_cpu;
+}
+
+void thread_update_load_avg(void) {
+  const int64_t f = 1 << 14;
+  int64_t ready_threads = list_size(&ready_list);
+  if (thread_current() != idle_thread) {
+    ready_threads++;
+  }
+  ready_threads = (int64_t)ready_threads * f / 60;
+  load_avg = (load_avg * 59 / 60) + ready_threads;
+}
+
+void thread_increase_recent_cpu(void) {
+  if (thread_current() == idle_thread) return;
+  const int64_t f = 1 << 14;
+  thread_current()->recent_cpu += 1 * f;
+}
+
+void thread_recalculate_all_recent_cpu(void) {
+  thread_update_load_avg();
+  thread_recalculate_recent_cpu(thread_current());
+  for (struct list_elem *e = list_begin(&ready_list);
+       e != list_end(&ready_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, elem);
+    thread_recalculate_recent_cpu(t);
+  }
+  for (struct list_elem *e = list_begin(&sleep_list);
+       e != list_end(&sleep_list); e = list_next(e)) {
+    struct thread *t = list_entry(e, struct thread, elem);
+    thread_recalculate_recent_cpu(t);
+  }
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int thread_get_recent_cpu(void) {
-  /* TODO: Your implementation goes here */
-  return 0;
+  enum intr_level old_level = intr_disable();
+  const int64_t f = 1 << 14;
+  int recent_cpu_val = thread_current()->recent_cpu * 100 / f;
+  intr_set_level(old_level);
+  return recent_cpu_val;
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -497,6 +580,8 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   list_init(&t->donated_list);
   t->wait_on_lock = NULL;
   t->priority = priority;
+  t->nice = NICE_DEFAULT;
+  t->recent_cpu = 0;
   t->magic = THREAD_MAGIC;
 }
 
